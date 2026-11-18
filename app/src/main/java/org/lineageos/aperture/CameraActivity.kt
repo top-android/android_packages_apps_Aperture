@@ -1458,8 +1458,20 @@ open class CameraActivity : AppCompatActivity(R.layout.activity_camera) {
      * Rebind cameraProvider use cases
      */
     private fun bindCameraUseCases(cameraConfiguration: CameraConfiguration) {
-        require(viewModel.cameraState.value == CameraState.IDLE) {
-            "Trying to rebind camera while camera is not in IDLE state"
+        // cannon: 瞬时状态可能在上个会话残留 —— 例如拍照中途退到后台，
+        // ImageCapture 的 onImageSaved/onError 回调不再触发，TAKING_PHOTO
+        // 永远不会回到 IDLE。此时下次 onStart 重放 cameraConfiguration
+        // 会命中这里，原来的 require 会把整个 app 崩掉
+        // （FATAL "Trying to rebind camera while camera is not in IDLE state"）。
+        // 非录像类的残留状态直接复位后继续 rebind；录像状态跳过本次 rebind。
+        val staleState = viewModel.cameraState.value
+        if (staleState.isRecordingVideo) {
+            Log.w(LOG_TAG, "Skip rebind while recording ($staleState)")
+            return
+        }
+        if (staleState != CameraState.IDLE) {
+            Log.w(LOG_TAG, "Reset stale camera state $staleState to IDLE before rebind")
+            viewModel.cameraState.value = CameraState.IDLE
         }
 
         // Show blurred preview
